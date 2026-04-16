@@ -1,0 +1,14 @@
+# query_graph_ofat.yaml
+# OFAT configuration for query graph generation
+# For each data graph, generate its query graph using the defaults and one-variable-at-a-time changes.
+
+default:
+  vertices_num: 40
+  avg_degree: 4
+  missing_edge_threshold: 3
+  num_per_setting: 100
+
+vary:
+  vertices_num: [10, 20, 40, 60, 80, 100]
+  avg_degree: [2, 4, 6, 8]
+  missing_edge_threshold: [1, 2, 3, 4, 5]

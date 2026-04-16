@@ -1,0 +1,3 @@
+# Python dependencies for SSM-DatasetGen
+# Install with:
+# pip install -r requirements.txt
