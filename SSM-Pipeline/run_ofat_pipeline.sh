@@ -15,6 +15,16 @@ DATA_MANIFEST="datasets/manifests/data_graph_manifest.csv"
 QUERY_MANIFEST="datasets/manifests/query_graph_manifest.csv"
 RUN_REAL_CONVERSION="${RUN_REAL_CONVERSION:-auto}"
 
+GENERATED_DATA_PATHS=(
+    "${TASK_DIR}"
+    "datasets/real"
+    "datasets/synthetic"
+    "datasets/queries"
+    "${VALIDATION_REPORT}"
+    "${DATA_MANIFEST}"
+    "${QUERY_MANIFEST}"
+)
+
 TOTAL_STEPS=7
 CURRENT_STEP=0
 STEP_NAMES=()
@@ -32,6 +42,31 @@ trap cleanup EXIT
 
 log() {
     printf '[%s] %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*"
+}
+
+clean_generated_data() {
+    local path
+    local removed_count=0
+
+    log "Cleaning generated data from previous runs."
+    for path in "${GENERATED_DATA_PATHS[@]}"; do
+        if [[ -z "${path}" || "${path}" == "/" || "${path}" == "." ]]; then
+            log "Refusing to remove unsafe generated data path: ${path}"
+            return 1
+        fi
+        if [[ -e "${path}" ]]; then
+            if ! rm -rf "${path}"; then
+                log "Failed to remove ${path}"
+                return 1
+            fi
+            removed_count=$((removed_count + 1))
+            log "Removed ${path}"
+        fi
+    done
+
+    if [[ "${removed_count}" -eq 0 ]]; then
+        log "No generated data from previous runs found."
+    fi
 }
 
 count_visible_files() {
@@ -62,13 +97,56 @@ count_graph_files() {
     if [[ -f "${path}" ]]; then
         case "$(basename "${path}")" in
             .*|*.csv|*.json|*.yaml|*.yml|*.md) printf '0' ;;
-            *) printf '1' ;;
+            *) case "${path}" in */query_graph/*) printf '0' ;; *) printf '1' ;; esac ;;
         esac
         return
     fi
 
     find "${path}" \
         -type f \
+        ! -path '*/query_graph/*' \
+        ! -name '.*' \
+        ! -name '*.csv' \
+        ! -name '*.json' \
+        ! -name '*.yaml' \
+        ! -name '*.yml' \
+        ! -name '*.md' \
+        | wc -l | tr -d '[:space:]'
+}
+
+count_synthetic_data_graph_files() {
+    local path="$1"
+    local packaged_count
+    if [[ ! -e "${path}" ]]; then
+        printf '0'
+        return
+    fi
+
+    packaged_count="$(
+        find "${path}" \
+            -type f \
+            -name 'graph_g.txt' \
+            ! -path '*/query_graph/*' \
+            | wc -l | tr -d '[:space:]'
+    )"
+    if [[ "${packaged_count}" != "0" ]]; then
+        printf '%s' "${packaged_count}"
+        return
+    fi
+
+    count_graph_files "${path}"
+}
+
+count_packaged_query_graph_files() {
+    local path="$1"
+    if [[ ! -e "${path}" ]]; then
+        printf '0'
+        return
+    fi
+
+    find "${path}" \
+        -type f \
+        -path '*/query_graph/*' \
         ! -name '.*' \
         ! -name '*.csv' \
         ! -name '*.json' \
@@ -181,7 +259,7 @@ summarize_generate_synthetic_graphs() {
     local graph_count
     task_count="$(csv_count_rows "${DATA_TASKS}")"
     generated_count="$(log_count_or_default 'generated ([0-9]+) synthetic graph file' "0")"
-    graph_count="$(count_graph_files "datasets/synthetic")"
+    graph_count="$(count_synthetic_data_graph_files "datasets/synthetic")"
 
     SUMMARY_DONE_COUNT="${generated_count}"
     SUMMARY_FAILURE_COUNT=0
@@ -216,7 +294,10 @@ summarize_generate_query_graphs() {
     local valid_data_count
     local query_task_count
     generated_count="$(log_count_or_default 'generated ([0-9]+) query graph file' "0")"
-    graph_count="$(count_graph_files "datasets/queries")"
+    graph_count="$(count_packaged_query_graph_files "datasets/synthetic")"
+    if [[ "${graph_count}" == "0" ]]; then
+        graph_count="$(count_graph_files "datasets/queries")"
+    fi
     valid_data_count="$(csv_count_column_true "${DATA_MANIFEST}" "is_valid")"
     query_task_count="$(csv_count_rows "${QUERY_TASKS}")"
 
@@ -318,6 +399,8 @@ run_step() {
     record_step_result "${name}" "ok" "${SUMMARY_DONE_COUNT}" "${SUMMARY_FAILURE_COUNT}" "${SUMMARY_NOTE}"
 }
 
+clean_generated_data || finish 1
+
 run_step \
     "Expand OFAT configs" \
     "Expand data/query OFAT configs into reusable task parameter files for later steps." \
@@ -330,12 +413,12 @@ case "${RUN_REAL_CONVERSION}" in
         if [[ "$(count_visible_files "${RAW_REAL_GRAPHS}")" -eq 0 ]]; then
             skip_step \
                 "Convert real graphs" \
-                "Convert raw real graphs into standard .graph files; safe to skip when no raw inputs exist." \
+                "Convert raw real graphs into standard .txt files; safe to skip when no raw inputs exist." \
                 "no raw real graph files under ${RAW_REAL_GRAPHS}"
         else
             run_step \
                 "Convert real graphs" \
-                "Convert raw real graphs into standard .graph files; this optional step will not block synthetic graph generation if it fails." \
+                "Convert raw real graphs into standard .txt files; this optional step will not block synthetic graph generation if it fails." \
                 "optional" \
                 "summarize_convert_real_graphs" \
                 "${PYTHON_BIN}" SSM-GraphGen/convert_real_graphs.py --input "${RAW_REAL_GRAPHS}"
@@ -352,7 +435,7 @@ case "${RUN_REAL_CONVERSION}" in
     0|false|no|skip)
         skip_step \
             "Convert real graphs" \
-            "Convert raw real graphs into standard .graph files; currently skipped by RUN_REAL_CONVERSION." \
+            "Convert raw real graphs into standard .txt files; currently skipped by RUN_REAL_CONVERSION." \
             "RUN_REAL_CONVERSION=${RUN_REAL_CONVERSION}"
         ;;
     *)

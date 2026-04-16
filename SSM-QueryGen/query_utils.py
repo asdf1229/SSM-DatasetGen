@@ -17,7 +17,7 @@ def build_query_filename(
     missing_edge_threshold,
     query_index,
     generation_mode="ofat",
-    ext=".graph",
+    ext=".txt",
 ):
     """Build a query graph filename containing source and parameter metadata."""
     if not ext.startswith("."):
@@ -63,6 +63,8 @@ def parse_query_filename(filename):
     stem = str(filename).split("/")[-1].rsplit("\\", 1)[-1].rsplit(".", 1)[0]
     parts = stem.split("__")
     result = {"query_id": stem}
+    if stem.isdigit():
+        result["query_index"] = stem
 
     for part in parts:
         if part.startswith("source_"):

@@ -184,7 +184,7 @@ def convert_file(input_file, output_dir, input_root, overwrite=False):
     vertices, normalized_edges = normalize_vertex_ids(vertex_labels, edges)
 
     relative = Path(input_file).relative_to(input_root)
-    output_file = Path(output_dir) / relative.with_suffix(".graph")
+    output_file = Path(output_dir) / relative.with_suffix(".txt")
     if output_file.exists() and not overwrite:
         log("skip existing {}".format(output_file))
         return output_file

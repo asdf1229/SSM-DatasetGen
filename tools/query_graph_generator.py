@@ -260,9 +260,9 @@ def generate_query_graph(
     )
 
 
-def output_path(output_dir, output_prefix, query_index):
+def output_path(output_dir, query_index):
     """Build the output path for one query index."""
-    return Path(output_dir) / "{}__idx_{}.graph".format(output_prefix, query_index)
+    return Path(output_dir) / "{}.txt".format(query_index + 1)
 
 
 def parse_args():
@@ -284,7 +284,11 @@ def parse_args():
         help="Number of query graphs to generate for this parameter setting.",
     )
     parser.add_argument("--output-dir", required=True, help="Output directory.")
-    parser.add_argument("--output-prefix", required=True, help="Output filename prefix.")
+    parser.add_argument(
+        "--output-prefix",
+        default="query",
+        help="Legacy filename prefix argument; query files are now named 1.txt..N.txt.",
+    )
     parser.add_argument("--seed", type=int, default=None, help="Optional random seed.")
     parser.add_argument(
         "--strict-data-edges",
@@ -351,7 +355,7 @@ def main():
     written = 0
     skipped = 0
     for query_index in range(args.num_per_setting):
-        path = output_path(output_dir, args.output_prefix, query_index)
+        path = output_path(output_dir, query_index)
         if path.exists() and not args.overwrite:
             skipped += 1
             continue

@@ -41,8 +41,11 @@ def load_generation_tasks(task_path, config_path):
     return build_ofat_tasks(defaults, vary)
 
 
-def build_output_filename(task):
-    """Build a deterministic synthetic graph filename from task parameters."""
+DATA_GRAPH_FILENAME = "graph_g.txt"
+
+
+def build_output_dirname(task):
+    """Build a deterministic synthetic graph directory name from task parameters."""
     params = task["params"]
     parts = [
         "synthetic",
@@ -53,7 +56,12 @@ def build_output_filename(task):
         "degree_dist{}".format(safe_token(params.get("degree_distribution", ""))),
         "label_dist{}".format(safe_token(params.get("label_distribution", ""))),
     ]
-    return "__".join(parts) + ".graph"
+    return "__".join(parts)
+
+
+def build_output_filename(task):
+    """Build the synthetic graph path below the output root."""
+    return str(Path(build_output_dirname(task)) / DATA_GRAPH_FILENAME)
 
 
 def build_generator_command(tool_path, params, output_file):

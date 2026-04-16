@@ -322,7 +322,7 @@ def parse_args():
         required=True,
         help="Label distribution: uniform, Zipf, or degree-correlated.",
     )
-    parser.add_argument("--output", required=True, help="Output .graph file path.")
+    parser.add_argument("--output", required=True, help="Output .txt graph file path.")
     parser.add_argument("--seed", type=int, default=None, help="Optional random seed.")
     parser.add_argument("--overwrite", action="store_true", help="Overwrite output file.")
     parser.add_argument(
@@ -375,6 +375,13 @@ def validate_args(args):
         raise ValueError("R-MAT probabilities must be non-negative and sum to <= 1")
 
 
+def default_graph_id(output):
+    """Use the containing parameter directory as the graph id for packaged data graphs."""
+    if output.name == "graph_g.txt" and output.parent.name:
+        return output.parent.name
+    return output.stem
+
+
 def main():
     args = parse_args()
     validate_args(args)
@@ -389,7 +396,7 @@ def main():
     labels = generate_labels(args, edges, rng)
     write_standard_graph(
         output,
-        graph_id=output.stem,
+        graph_id=default_graph_id(output),
         vertices=labels,
         edges=[(u, v, None) for u, v in sorted(edges)],
     )

@@ -22,6 +22,37 @@ FIELDNAMES = [
     "errors",
 ]
 
+DATA_GRAPH_FILENAME = "graph_g.txt"
+QUERY_GRAPH_DIRNAME = "query_graph"
+
+
+def _is_query_graph_path(path):
+    return QUERY_GRAPH_DIRNAME in Path(path).parts
+
+
+def _iter_validation_files(input_path):
+    """Yield data graph files, preferring packaged synthetic graph_g.txt files."""
+    input_path = Path(input_path)
+    if input_path.is_file():
+        yield from iter_graph_files(input_path)
+        return
+
+    if input_path.name == "synthetic" and input_path.is_dir():
+        packaged = sorted(
+            child
+            for child in input_path.rglob(DATA_GRAPH_FILENAME)
+            if not _is_query_graph_path(child)
+        )
+        if packaged:
+            for child in packaged:
+                yield child
+            return
+
+    skip_query_graphs = QUERY_GRAPH_DIRNAME not in input_path.parts
+    for child in iter_graph_files(input_path):
+        if not skip_query_graphs or not _is_query_graph_path(child):
+            yield child
+
 
 def validate_graph_file(path):
     """Validate one graph file and return a report row."""
@@ -96,7 +127,7 @@ def main():
     args = parse_args()
     rows = []
     for input_path in args.input:
-        for graph_file in iter_graph_files(input_path):
+        for graph_file in _iter_validation_files(input_path):
             rows.append(validate_graph_file(graph_file))
 
     write_csv(args.report, FIELDNAMES, rows)

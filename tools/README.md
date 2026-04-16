@@ -17,19 +17,18 @@ python tools/synthetic_graph_generator.py \
   --label-count 200 \
   --degree-distribution ER \
   --label-distribution uniform \
-  --output datasets/synthetic/output.graph
+  --output datasets/synthetic/output/graph_g.txt
 ```
 
 Expected query generator command:
 
 ```bash
 python tools/query_graph_generator.py \
-  --data-graph datasets/real/input.graph \
+  --data-graph datasets/synthetic/output/graph_g.txt \
   --vertices-num 40 \
   --avg-degree 4 \
   --density 0.102564 \
   --missing-edge-threshold 3 \
   --num-per-setting 100 \
-  --output-dir datasets/queries/input/baseline \
-  --output-prefix query__source_input__baseline
+  --output-dir datasets/synthetic/output/query_graph/baseline
 ```

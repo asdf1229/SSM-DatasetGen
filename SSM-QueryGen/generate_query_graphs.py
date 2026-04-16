@@ -17,9 +17,12 @@ from pipeline_utils import (
     resolve_project_path,
 )
 from query_generator_wrapper import call_query_generator
-from query_utils import build_query_prefix, safe_token
+from query_utils import safe_token
 
 DEFAULT_TASKS = PROJECT_ROOT / "configs" / "ofat_tasks" / "query_graph_tasks.csv"
+DATA_GRAPH_FILENAME = "graph_g.txt"
+QUERY_GRAPH_DIRNAME = "query_graph"
+LEGACY_QUERY_ROOT = PROJECT_ROOT / "datasets" / "queries"
 
 
 def load_data_manifest(path):
@@ -65,7 +68,16 @@ def _source_path(row):
     return resolve_project_path(value, PROJECT_ROOT)
 
 
-def generate_queries_for_graph(row, tasks, tool_path, output_root):
+def _query_output_base(source_file, source_graph_id, row, output_root):
+    """Return the directory that should contain query task subdirectories."""
+    if output_root is not None:
+        return Path(output_root) / safe_token(source_graph_id)
+    if row.get("graph_type") == "synthetic" and source_file.name == DATA_GRAPH_FILENAME:
+        return source_file.parent / QUERY_GRAPH_DIRNAME
+    return LEGACY_QUERY_ROOT / safe_token(source_graph_id)
+
+
+def generate_queries_for_graph(row, tasks, tool_path, output_root=None):
     """Generate all query graph OFAT tasks for one data graph row."""
     source_file = _source_path(row)
     if source_file is None or not source_file.exists():
@@ -73,23 +85,17 @@ def generate_queries_for_graph(row, tasks, tool_path, output_root):
         return []
 
     source_graph_id = row.get("graph_id") or source_file.stem
+    query_base = _query_output_base(source_file, source_graph_id, row, output_root)
     generated = []
     for task in tasks:
         params = task["params"]
-        task_dir = Path(output_root) / safe_token(source_graph_id) / task["task_id"]
-        output_prefix = build_query_prefix(
-            source_graph_id,
-            task["task_id"],
-            vertices_num=params["vertices_num"],
-            avg_degree=params["avg_degree"],
-            missing_edge_threshold=params["missing_edge_threshold"],
-        )
+        task_dir = query_base / task["task_id"]
         generated.extend(
             call_query_generator(
                 tool_path=tool_path,
                 data_graph_file=source_file,
                 output_dir=task_dir,
-                output_prefix=output_prefix,
+                output_prefix="query",
                 vertices_num=params["vertices_num"],
                 avg_degree=params["avg_degree"],
                 missing_edge_threshold=params["missing_edge_threshold"],
@@ -123,8 +129,11 @@ def parse_args():
     )
     parser.add_argument(
         "--output-dir",
-        default=str(PROJECT_ROOT / "datasets" / "queries"),
-        help="Root directory for generated query graphs.",
+        default=None,
+        help=(
+            "Optional legacy root directory for generated query graphs. "
+            "When omitted, synthetic graph_g.txt inputs write to sibling query_graph/ directories."
+        ),
     )
     parser.add_argument("--dry-run", action="store_true", help="Print tasks without running the tool.")
     parser.add_argument(

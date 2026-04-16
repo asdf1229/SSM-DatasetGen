@@ -26,10 +26,14 @@ FIELDNAMES = [
     "is_valid",
 ]
 
+DATA_GRAPH_FILENAME = "graph_g.txt"
+QUERY_GRAPH_DIRNAME = "query_graph"
+
 
 def _parse_synthetic_params(path):
     """Best-effort parsing for filenames produced by generate_synthetic_graphs.py."""
-    name = Path(path).stem
+    path = Path(path)
+    name = path.parent.name if path.name == DATA_GRAPH_FILENAME else path.stem
     result = {}
     patterns = {
         "degree_distribution": r"__degree_dist([^_]+)",
@@ -42,11 +46,32 @@ def _parse_synthetic_params(path):
     return result
 
 
+def _is_query_graph_path(path):
+    return QUERY_GRAPH_DIRNAME in Path(path).parts
+
+
+def _iter_synthetic_graph_files(path):
+    """Yield packaged synthetic data graphs, falling back to legacy flat files."""
+    path = Path(path)
+    packaged = sorted(
+        child for child in path.rglob(DATA_GRAPH_FILENAME) if not _is_query_graph_path(child)
+    )
+    if packaged:
+        for child in packaged:
+            yield child
+        return
+
+    for child in iter_graph_files(path):
+        if not _is_query_graph_path(child):
+            yield child
+
+
 def build_manifest_row(path, graph_type):
     """Build one data graph manifest row."""
     path = Path(path)
+    path_id = path.parent.name if path.name == DATA_GRAPH_FILENAME else path.stem
     row = {
-        "graph_id": path.stem,
+        "graph_id": path_id,
         "graph_type": graph_type,
         "file_path": project_relative(path, PROJECT_ROOT),
         "vertices": "",
@@ -55,7 +80,7 @@ def build_manifest_row(path, graph_type):
         "label_count": "",
         "degree_distribution": "",
         "label_distribution": "",
-        "source_name": path.stem,
+        "source_name": path_id,
         "is_valid": "false",
     }
 
@@ -99,7 +124,7 @@ def main():
     rows = []
     for graph_file in iter_graph_files(args.real_dir):
         rows.append(build_manifest_row(graph_file, "real"))
-    for graph_file in iter_graph_files(args.synthetic_dir):
+    for graph_file in _iter_synthetic_graph_files(args.synthetic_dir):
         rows.append(build_manifest_row(graph_file, "synthetic"))
 
     write_csv(args.output, FIELDNAMES, rows)
