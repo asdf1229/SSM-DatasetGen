@@ -20,6 +20,6 @@ default:
 vary:
   vertices: [5000, 10000, 20000, 50000]
   avg_degree: [4, 8, 12, 16, 20]
-  label_count: [50, 100, 200, 500]
+  label_count: [20, 50, 100, 200]
   degree_distribution: [power-law, ER, R-MAT]
   label_distribution: [uniform, Zipf, degree-correlated]

@@ -4,7 +4,7 @@
 
 default:
   vertices_num: 10
-  num_per_setting: 100
+  num_per_setting: 10
 
 vary:
   vertices_num: [6, 8, 10, 20, 30]
