@@ -21,25 +21,17 @@ def build_query_generator_command(
     output_dir,
     output_prefix,
     vertices_num,
-    avg_degree,
-    missing_edge_threshold,
     num_per_setting,
+    overwrite=False,
 ):
     """Build the standard command expected by the query generator script."""
-    density = avg_degree_to_density(vertices_num, avg_degree)
-    return [
+    command = [
         sys.executable,
         str(tool_path),
         "--data-graph",
         str(data_graph_file),
         "--vertices-num",
         str(vertices_num),
-        "--avg-degree",
-        str(avg_degree),
-        "--density",
-        str(density),
-        "--missing-edge-threshold",
-        str(missing_edge_threshold),
         "--num-per-setting",
         str(num_per_setting),
         "--output-dir",
@@ -47,6 +39,9 @@ def build_query_generator_command(
         "--output-prefix",
         str(output_prefix),
     ]
+    if overwrite:
+        command.append("--overwrite")
+    return command
 
 
 def _snapshot_files(path):
@@ -56,17 +51,23 @@ def _snapshot_files(path):
     return {child.resolve() for child in path.rglob("*") if child.is_file()}
 
 
+def _expected_query_files(output_dir, num_per_setting):
+    return [
+        (Path(output_dir) / "{}.txt".format(query_index + 1)).resolve()
+        for query_index in range(int(num_per_setting))
+    ]
+
+
 def call_query_generator(
     tool_path,
     data_graph_file,
     output_dir,
     output_prefix,
     vertices_num,
-    avg_degree,
-    missing_edge_threshold,
     num_per_setting,
+    overwrite=False,
 ):
-    """Call query_graph_generator.py and return files created by the command."""
+    """Call query_graph_generator.py and return files created or overwritten."""
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     before = _snapshot_files(output_dir)
@@ -77,11 +78,14 @@ def call_query_generator(
         output_dir=output_dir,
         output_prefix=output_prefix,
         vertices_num=vertices_num,
-        avg_degree=avg_degree,
-        missing_edge_threshold=missing_edge_threshold,
         num_per_setting=num_per_setting,
+        overwrite=overwrite,
     )
     subprocess.run(command, check=True)
 
     after = _snapshot_files(output_dir)
+    if overwrite:
+        return sorted(
+            path for path in _expected_query_files(output_dir, num_per_setting) if path in after
+        )
     return sorted(after - before)

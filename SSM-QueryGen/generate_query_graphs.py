@@ -77,7 +77,7 @@ def _query_output_base(source_file, source_graph_id, row, output_root):
     return LEGACY_QUERY_ROOT / safe_token(source_graph_id)
 
 
-def generate_queries_for_graph(row, tasks, tool_path, output_root=None):
+def generate_queries_for_graph(row, tasks, tool_path, output_root=None, overwrite=False):
     """Generate all query graph OFAT tasks for one data graph row."""
     source_file = _source_path(row)
     if source_file is None or not source_file.exists():
@@ -97,9 +97,8 @@ def generate_queries_for_graph(row, tasks, tool_path, output_root=None):
                 output_dir=task_dir,
                 output_prefix="query",
                 vertices_num=params["vertices_num"],
-                avg_degree=params["avg_degree"],
-                missing_edge_threshold=params["missing_edge_threshold"],
                 num_per_setting=params["num_per_setting"],
+                overwrite=overwrite,
             )
         )
     return generated
@@ -136,6 +135,7 @@ def parse_args():
         ),
     )
     parser.add_argument("--dry-run", action="store_true", help="Print tasks without running the tool.")
+    parser.add_argument("--overwrite", action="store_true", help="Overwrite existing query files.")
     parser.add_argument(
         "--fail-on-missing-tool",
         action="store_true",
@@ -170,7 +170,11 @@ def main():
 
     generated = []
     for row in rows:
-        generated.extend(generate_queries_for_graph(row, tasks, tool_path, args.output_dir))
+        generated.extend(
+            generate_queries_for_graph(
+                row, tasks, tool_path, args.output_dir, overwrite=args.overwrite
+            )
+        )
 
     log("generated {} query graph file(s)".format(len(generated)))
     return 0

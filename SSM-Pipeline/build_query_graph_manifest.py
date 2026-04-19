@@ -23,7 +23,6 @@ FIELDNAMES = [
     "query_file",
     "vertices_num",
     "avg_degree",
-    "missing_edge_threshold",
     "density",
     "query_index",
     "generation_mode",
@@ -129,9 +128,6 @@ def build_manifest_row(path, queries_root, task_lookup=None):
         "query_file": project_relative(path, PROJECT_ROOT),
         "vertices_num": parsed.get("vertices_num", task_params.get("vertices_num", "")),
         "avg_degree": parsed.get("avg_degree", task_params.get("avg_degree", "")),
-        "missing_edge_threshold": parsed.get(
-            "missing_edge_threshold", task_params.get("missing_edge_threshold", "")
-        ),
         "density": "",
         "query_index": parsed.get("query_index", ""),
         "generation_mode": generation_mode,
@@ -142,7 +138,7 @@ def build_manifest_row(path, queries_root, task_lookup=None):
         graph = read_standard_graph(path)
         stats = compute_graph_stats(graph)
         row["vertices_num"] = row["vertices_num"] or stats["vertices"]
-        row["avg_degree"] = row["avg_degree"] or stats["avg_degree"]
+        row["avg_degree"] = stats["avg_degree"]
     except Exception:
         pass
 

@@ -101,27 +101,24 @@ Useful optional parameters:
 ### Query Graphs
 
 `tools/query_graph_generator.py` generates query graphs from an existing data
-graph. For each query graph, it first samples a connected vertex set through a
-random walk tree on the data graph, then adds random edges among the sampled
-vertices until the requested average degree or density is reached. Failed random
+graph. For each query graph, it samples a connected vertex set with a
+Metropolis-Hastings random walk, then writes the data graph's induced subgraph
+on those vertices. Because every query edge is copied from the source graph,
+the sampled query graph has a corresponding match in the data graph. Failed
 walks are retried.
 
 Supported query-generation mode:
 
-- Random-walk tree sampling from the data graph.
-- Random edge fill-in among sampled query vertices.
-- Optional strict mode with `--strict-data-edges`, where added non-tree edges
-  must also exist in the original data graph.
+- Metropolis-Hastings random-walk sampling from the data graph.
+- Induced-subgraph edge extraction from the sampled vertices.
+- Query vertex count defaults to 10 and is capped at 30.
 
 Example:
 
 ```bash
 python3 tools/query_graph_generator.py \
   --data-graph datasets/synthetic/example/graph_g.txt \
-  --vertices-num 40 \
-  --avg-degree 4 \
-  --density 0.102564 \
-  --missing-edge-threshold 3 \
+  --vertices-num 10 \
   --num-per-setting 100 \
   --output-dir datasets/synthetic/example/query_graph/baseline
 ```
@@ -132,7 +129,6 @@ Useful optional parameters:
 - `--overwrite`: replace existing query files.
 - `--max-attempts`: maximum retry count per query graph.
 - `--max-walk-steps`: maximum random-walk steps per retry.
-- `--strict-data-edges`: require added edges to exist in the source data graph.
 
 ### Graph Parameter Checks
 
@@ -145,9 +141,7 @@ Example:
 
 ```bash
 python3 tools/check_graph_parameters.py datasets/synthetic/example/query_graph/baseline \
-  --expected-vertices 40 \
-  --expected-edges 80 \
-  --expected-avg-degree 4 \
+  --expected-vertices 10 \
   --require-connected \
   --output datasets/synthetic/example/query_check.csv
 ```
@@ -159,6 +153,9 @@ python3 SSM-Pipeline/make_ofat_configs.py
 python3 SSM-GraphGen/generate_synthetic_graphs.py --tasks configs/ofat_tasks/data_graph_tasks.csv
 python3 SSM-QueryGen/generate_query_graphs.py --tasks configs/ofat_tasks/query_graph_tasks.csv
 ```
+
+Add `--overwrite` to `generate_query_graphs.py` when replacing query files
+created by an older generation method.
 
 `make_ofat_configs.py` writes both summary task files and per-task JSON files:
 

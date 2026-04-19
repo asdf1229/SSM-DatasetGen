@@ -2,7 +2,6 @@
 """Generate query graphs by sampling connected subgraphs from a data graph."""
 
 import argparse
-import itertools
 import random
 import sys
 from pathlib import Path
@@ -12,6 +11,9 @@ PROJECT_ROOT = CURRENT_DIR.parent
 sys.path.insert(0, str(PROJECT_ROOT / "SSM-GraphGen"))
 
 from graph_utils import canonicalize_undirected_edges, read_standard_graph, write_standard_graph
+
+DEFAULT_QUERY_VERTICES = 10
+MAX_QUERY_VERTICES = 30
 
 
 def edge_key(u, v):
@@ -66,43 +68,6 @@ def connected_component_sizes(adjacency):
     return sizes
 
 
-def target_edge_count(vertices_num, avg_degree, density):
-    """Convert avg-degree/density parameters into a target edge count."""
-    max_edges = vertices_num * (vertices_num - 1) // 2
-    min_connected_edges = max(0, vertices_num - 1)
-    targets = []
-
-    if avg_degree is not None:
-        targets.append(int(round(float(avg_degree) * vertices_num / 2.0)))
-    if density is not None:
-        targets.append(int(round(float(density) * max_edges)))
-    if not targets:
-        raise ValueError("either --avg-degree or --density must be provided")
-
-    target = targets[0]
-    if len(targets) > 1 and abs(targets[0] - targets[1]) > 1:
-        raise ValueError(
-            "inconsistent --avg-degree and --density targets: {} vs {}".format(
-                targets[0], targets[1]
-            )
-        )
-
-    if target < min_connected_edges:
-        raise ValueError(
-            "target edge count {} cannot contain a connected tree with {} vertices".format(
-                target, vertices_num
-            )
-        )
-    if target > max_edges:
-        raise ValueError(
-            "target edge count {} exceeds complete graph edge count {}".format(
-                target, max_edges
-            )
-        )
-
-    return target
-
-
 def eligible_start_vertices(adjacency, component_sizes, vertices_num):
     """Return vertices that belong to a large enough connected component."""
     if vertices_num == 1:
@@ -115,82 +80,52 @@ def eligible_start_vertices(adjacency, component_sizes, vertices_num):
     ]
 
 
-def random_walk_tree(adjacency, starts, vertices_num, max_walk_steps, rng):
-    """Sample a tree-sized connected vertex set with a random walk."""
+def metropolis_hastings_random_walk(adjacency, starts, vertices_num, max_walk_steps, rng):
+    """Sample a connected vertex set with a Metropolis-Hastings random walk."""
     if not starts:
         return None
 
     start = rng.choice(starts)
     selected = [start]
     selected_set = {start}
-    tree_edges = []
     current = start
 
     for _step in range(max_walk_steps):
         if len(selected) >= vertices_num:
-            return selected, tree_edges
+            return selected
 
         neighbors = adjacency.get(current, [])
         if not neighbors:
             return None
 
-        next_vertex = rng.choice(neighbors)
-        if next_vertex not in selected_set:
-            selected.append(next_vertex)
-            selected_set.add(next_vertex)
-            tree_edges.append(edge_key(current, next_vertex))
-        current = next_vertex
+        candidate = rng.choice(neighbors)
+        current_degree = len(neighbors)
+        candidate_degree = len(adjacency.get(candidate, []))
+        acceptance = 1.0
+        if candidate_degree > 0:
+            acceptance = min(1.0, float(current_degree) / float(candidate_degree))
+
+        if rng.random() > acceptance:
+            continue
+
+        current = candidate
+        if current not in selected_set:
+            selected.append(current)
+            selected_set.add(current)
 
     if len(selected) >= vertices_num:
-        return selected, tree_edges
+        return selected
     return None
 
 
-def add_random_edges(
-    selected_vertices,
-    tree_edges,
-    edge_labels,
-    target_edges,
-    missing_edge_threshold,
-    rng,
-    strict_data_edges=False,
-):
-    """Randomly add edges among selected vertices until the target is met."""
-    query_edges = set(tree_edges)
-    if len(query_edges) > target_edges:
-        return None
-
-    pair_pool = [
-        edge_key(u, v)
-        for u, v in itertools.combinations(selected_vertices, 2)
-        if edge_key(u, v) not in query_edges
-    ]
-    rng.shuffle(pair_pool)
-
-    if not strict_data_edges:
-        while len(query_edges) < target_edges and pair_pool:
-            query_edges.add(pair_pool.pop())
-        if len(query_edges) != target_edges:
-            return None
-        return query_edges
-
-    real_extra_edges = [key for key in pair_pool if key in edge_labels]
-    if len(query_edges) + len(real_extra_edges) < target_edges:
-        return None
-
-    missing_edges_seen = 0
-    while len(query_edges) < target_edges and pair_pool:
-        key = pair_pool.pop()
-        if key not in edge_labels:
-            missing_edges_seen += 1
-            if missing_edges_seen > missing_edge_threshold:
-                return None
-            continue
-        query_edges.add(key)
-
-    if len(query_edges) != target_edges:
-        return None
-    return query_edges
+def induced_edge_keys(selected_vertices, edge_labels):
+    """Return all data-graph edges induced by the selected vertex set."""
+    selected_set = set(selected_vertices)
+    return {
+        key
+        for key in edge_labels
+        if key[0] in selected_set and key[1] in selected_set
+    }
 
 
 def remap_query_graph(data_graph, selected_vertices, query_edge_keys, edge_labels):
@@ -216,38 +151,23 @@ def generate_query_graph(
     edge_labels,
     starts,
     vertices_num,
-    target_edges,
-    missing_edge_threshold,
     max_attempts,
     max_walk_steps,
     rng,
-    strict_data_edges=False,
 ):
-    """Generate one query graph, retrying failed random walks."""
+    """Generate one query graph as an induced subgraph of the data graph."""
     for _attempt in range(max_attempts):
-        walk_result = random_walk_tree(
+        selected_vertices = metropolis_hastings_random_walk(
             adjacency=adjacency,
             starts=starts,
             vertices_num=vertices_num,
             max_walk_steps=max_walk_steps,
             rng=rng,
         )
-        if walk_result is None:
+        if selected_vertices is None:
             continue
 
-        selected_vertices, tree_edges = walk_result
-        query_edge_keys = add_random_edges(
-            selected_vertices=selected_vertices,
-            tree_edges=tree_edges,
-            edge_labels=edge_labels,
-            target_edges=target_edges,
-            missing_edge_threshold=missing_edge_threshold,
-            rng=rng,
-            strict_data_edges=strict_data_edges,
-        )
-        if query_edge_keys is None:
-            continue
-
+        query_edge_keys = induced_edge_keys(selected_vertices, edge_labels)
         return remap_query_graph(
             data_graph=data_graph,
             selected_vertices=selected_vertices,
@@ -268,14 +188,13 @@ def output_path(output_dir, query_index):
 def parse_args():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--data-graph", required=True, help="Standard-format data graph.")
-    parser.add_argument("--vertices-num", required=True, type=int, help="Query vertex count.")
-    parser.add_argument("--avg-degree", type=float, default=None, help="Target average degree.")
-    parser.add_argument("--density", type=float, default=None, help="Target undirected density.")
     parser.add_argument(
-        "--missing-edge-threshold",
-        required=True,
+        "--vertices-num",
         type=int,
-        help="Maximum missing random edge probes allowed while adding edges.",
+        default=DEFAULT_QUERY_VERTICES,
+        help="Query vertex count. Defaults to {}; maximum is {}.".format(
+            DEFAULT_QUERY_VERTICES, MAX_QUERY_VERTICES
+        ),
     )
     parser.add_argument(
         "--num-per-setting",
@@ -290,11 +209,6 @@ def parse_args():
         help="Legacy filename prefix argument; query files are now named 1.txt..N.txt.",
     )
     parser.add_argument("--seed", type=int, default=None, help="Optional random seed.")
-    parser.add_argument(
-        "--strict-data-edges",
-        action="store_true",
-        help="Require added non-tree edges to also exist in the data graph.",
-    )
     parser.add_argument(
         "--max-attempts",
         type=int,
@@ -314,14 +228,12 @@ def parse_args():
 def validate_args(args):
     if args.vertices_num <= 0:
         raise ValueError("--vertices-num must be positive")
+    if args.vertices_num > MAX_QUERY_VERTICES:
+        raise ValueError("--vertices-num must be at most {}".format(MAX_QUERY_VERTICES))
     if args.num_per_setting <= 0:
         raise ValueError("--num-per-setting must be positive")
-    if args.missing_edge_threshold < 0:
-        raise ValueError("--missing-edge-threshold must be non-negative")
     if args.max_attempts <= 0:
         raise ValueError("--max-attempts must be positive")
-    if args.density is not None and not 0.0 <= args.density <= 1.0:
-        raise ValueError("--density must be between 0 and 1")
 
 
 def main():
@@ -346,7 +258,6 @@ def main():
             )
         )
 
-    target_edges = target_edge_count(args.vertices_num, args.avg_degree, args.density)
     max_walk_steps = args.max_walk_steps or max(1000, args.vertices_num * 100)
     rng = random.Random(args.seed)
     output_dir = Path(args.output_dir)
@@ -366,12 +277,9 @@ def main():
             edge_labels=edge_labels,
             starts=starts,
             vertices_num=args.vertices_num,
-            target_edges=target_edges,
-            missing_edge_threshold=args.missing_edge_threshold,
             max_attempts=args.max_attempts,
             max_walk_steps=max_walk_steps,
             rng=rng,
-            strict_data_edges=args.strict_data_edges,
         )
         write_standard_graph(path, path.stem, vertices, edges)
         written += 1

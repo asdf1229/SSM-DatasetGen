@@ -13,8 +13,6 @@ def safe_token(value):
 def build_query_filename(
     source_graph_id,
     vertices_num,
-    avg_degree,
-    missing_edge_threshold,
     query_index,
     generation_mode="ofat",
     ext=".txt",
@@ -24,13 +22,11 @@ def build_query_filename(
         ext = "." + ext
     return (
         "query__source_{source}__mode_{mode}__vertices_{vertices}"
-        "__avg_degree_{degree}__missing_{missing}__idx_{idx}{ext}"
+        "__idx_{idx}{ext}"
     ).format(
         source=safe_token(source_graph_id),
         mode=safe_token(generation_mode),
         vertices=safe_token(vertices_num),
-        degree=safe_token(avg_degree),
-        missing=safe_token(missing_edge_threshold),
         idx=safe_token(query_index),
         ext=ext,
     )
@@ -40,8 +36,6 @@ def build_query_prefix(
     source_graph_id,
     task_id,
     vertices_num=None,
-    avg_degree=None,
-    missing_edge_threshold=None,
 ):
     """Build the prefix passed to the external query generator."""
     parts = [
@@ -51,10 +45,6 @@ def build_query_prefix(
     ]
     if vertices_num is not None:
         parts.append("vertices_{}".format(safe_token(vertices_num)))
-    if avg_degree is not None:
-        parts.append("avg_degree_{}".format(safe_token(avg_degree)))
-    if missing_edge_threshold is not None:
-        parts.append("missing_{}".format(safe_token(missing_edge_threshold)))
     return "__".join(parts)
 
 

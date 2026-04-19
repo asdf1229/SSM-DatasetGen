@@ -45,6 +45,14 @@ def _write_task_outputs(tasks, output_dir, stem):
 
     write_csv(csv_output, _fieldnames(rows), rows)
     write_json(json_output, {"tasks": tasks})
+    expected_files = {
+        "{}.json".format(safe_token(task["task_id"]))
+        for task in tasks
+    }
+    per_task_dir.mkdir(parents=True, exist_ok=True)
+    for child in per_task_dir.glob("*.json"):
+        if child.name not in expected_files:
+            child.unlink()
     for task in tasks:
         write_json(per_task_dir / "{}.json".format(safe_token(task["task_id"])), task)
 

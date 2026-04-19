@@ -25,10 +25,7 @@ Expected query generator command:
 ```bash
 python tools/query_graph_generator.py \
   --data-graph datasets/synthetic/output/graph_g.txt \
-  --vertices-num 40 \
-  --avg-degree 4 \
-  --density 0.102564 \
-  --missing-edge-threshold 3 \
+  --vertices-num 10 \
   --num-per-setting 100 \
   --output-dir datasets/synthetic/output/query_graph/baseline
 ```
