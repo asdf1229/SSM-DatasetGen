@@ -72,7 +72,7 @@ def coerce_scalar(value):
 
 
 def parse_inline_list(value):
-    """Parse a simple inline list such as [1, 2, ER, power-law]."""
+    """Parse a simple inline list such as [1, 2, R-MAT]."""
     inner = value.strip()[1:-1].strip()
     if not inner:
         return []

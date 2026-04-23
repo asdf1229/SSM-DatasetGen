@@ -64,13 +64,11 @@ standard `t/v/e` graph format.
 ### Synthetic Data Graphs
 
 `tools/synthetic_graph_generator.py` generates one synthetic data graph from a
-vertex count, target average degree, degree distribution, label count, and label
-distribution.
+vertex count, target average degree, fixed R-MAT degree distribution, label
+count, and label distribution.
 
-Supported degree distributions:
+Degree distribution:
 
-- `ER`: uniformly samples undirected edges until the exact target edge count is reached.
-- `power-law`: uses preferential attachment and preferential edge fill-in to produce a skewed degree profile.
 - `R-MAT`: samples edges with an R-MAT initiator matrix. Defaults are `a=0.57`, `b=0.19`, `c=0.19`, `d=0.05`.
 
 Supported vertex-label distributions:
@@ -86,7 +84,7 @@ python3 tools/synthetic_graph_generator.py \
   --vertices 20000 \
   --avg-degree 12 \
   --label-count 200 \
-  --degree-distribution ER \
+  --degree-distribution R-MAT \
   --label-distribution uniform \
   --output datasets/synthetic/example/graph_g.txt
 ```

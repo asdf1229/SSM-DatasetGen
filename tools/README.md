@@ -15,7 +15,7 @@ python tools/synthetic_graph_generator.py \
   --vertices 20000 \
   --avg-degree 12 \
   --label-count 200 \
-  --degree-distribution ER \
+  --degree-distribution R-MAT \
   --label-distribution uniform \
   --output datasets/synthetic/output/graph_g.txt
 ```

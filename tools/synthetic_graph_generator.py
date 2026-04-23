@@ -14,6 +14,8 @@ sys.path.insert(0, str(PROJECT_ROOT / "SSM-GraphGen"))
 
 from graph_utils import write_standard_graph
 
+FIXED_DEGREE_DISTRIBUTION = "R-MAT"
+
 
 def edge_key(u, v):
     """Return a canonical undirected edge key."""
@@ -72,89 +74,6 @@ def fill_uniform_edges(vertices, target_edges, rng, edges=None, max_attempt_fact
     return edges
 
 
-def generate_er_edges(vertices, target_edges, rng):
-    """Generate an ER-like sparse simple graph with a fixed edge count."""
-    return fill_uniform_edges(vertices, target_edges, rng)
-
-
-def choose_preferential_vertex(repeated_vertices, upper_bound, rng):
-    """Choose a vertex with probability roughly proportional to current degree."""
-    if repeated_vertices:
-        return rng.choice(repeated_vertices)
-    return rng.randrange(upper_bound)
-
-
-def add_edge(edges, degrees, repeated_vertices, u, v):
-    """Add an edge and update degree tracking if it is new."""
-    key = edge_key(u, v)
-    if u == v or key in edges:
-        return False
-    edges.add(key)
-    degrees[u] += 1
-    degrees[v] += 1
-    repeated_vertices.append(u)
-    repeated_vertices.append(v)
-    return True
-
-
-def preferential_targets(vertex, target_count, repeated_vertices, rng):
-    """Choose distinct existing targets for one new vertex."""
-    targets = set()
-    attempts = 0
-    attempt_limit = max(100, target_count * 20)
-    while len(targets) < target_count and attempts < attempt_limit:
-        attempts += 1
-        target = choose_preferential_vertex(repeated_vertices, vertex, rng)
-        if target < vertex:
-            targets.add(target)
-
-    while len(targets) < target_count:
-        targets.add(rng.randrange(vertex))
-
-    return targets
-
-
-def generate_power_law_edges(vertices, target_edges, avg_degree, rng):
-    """Generate a simple graph with a preferential-attachment degree profile."""
-    if vertices <= 1 or target_edges == 0:
-        return set()
-
-    if target_edges < vertices - 1:
-        return fill_uniform_edges(vertices, target_edges, rng)
-
-    edges = set()
-    degrees = [0] * vertices
-    repeated_vertices = []
-    edges_per_new_vertex = max(1, int(round(float(avg_degree) / 2.0)))
-
-    for vertex in range(1, vertices):
-        future_vertices = vertices - vertex - 1
-        remaining_edges = target_edges - len(edges)
-        if remaining_edges <= 0:
-            break
-
-        reserve_for_connectivity = max(0, future_vertices)
-        attach_count = min(
-            edges_per_new_vertex,
-            vertex,
-            max(1, remaining_edges - reserve_for_connectivity),
-        )
-        for target in preferential_targets(vertex, attach_count, repeated_vertices, rng):
-            add_edge(edges, degrees, repeated_vertices, vertex, target)
-
-    attempt_limit = max(1000, (target_edges - len(edges)) * 50)
-    attempts = 0
-    while len(edges) < target_edges and attempts < attempt_limit:
-        attempts += 1
-        u = choose_preferential_vertex(repeated_vertices, vertices, rng)
-        v = choose_preferential_vertex(repeated_vertices, vertices, rng)
-        add_edge(edges, degrees, repeated_vertices, u, v)
-
-    if len(edges) < target_edges:
-        edges = fill_uniform_edges(vertices, target_edges, rng, edges=edges)
-    return edges
-
-
 def sample_rmat_pair(scale, rng, probabilities):
     """Sample one edge endpoint pair with the R-MAT initiator matrix."""
     a, b, c, _d = probabilities
@@ -203,32 +122,21 @@ def normalize_distribution_name(value):
 
 
 def generate_edges(args, rng):
-    """Dispatch to the requested graph degree distribution."""
+    """Generate edges with the fixed R-MAT distribution."""
     target_edges = target_edge_count(args.vertices, args.avg_degree)
-    distribution = normalize_distribution_name(args.degree_distribution)
-
-    if distribution == "er":
-        return generate_er_edges(args.vertices, target_edges, rng)
-    if distribution == "power-law":
-        return generate_power_law_edges(
-            args.vertices, target_edges, args.avg_degree, rng
-        )
-    if distribution == "r-mat":
-        probabilities = (
-            args.rmat_a,
-            args.rmat_b,
-            args.rmat_c,
-            1.0 - args.rmat_a - args.rmat_b - args.rmat_c,
-        )
-        return generate_rmat_edges(
-            args.vertices,
-            target_edges,
-            rng,
-            probabilities,
-            args.max_attempt_factor,
-        )
-
-    raise ValueError("unsupported degree distribution: {}".format(args.degree_distribution))
+    probabilities = (
+        args.rmat_a,
+        args.rmat_b,
+        args.rmat_c,
+        1.0 - args.rmat_a - args.rmat_b - args.rmat_c,
+    )
+    return generate_rmat_edges(
+        args.vertices,
+        target_edges,
+        rng,
+        probabilities,
+        args.max_attempt_factor,
+    )
 
 
 def build_degree_counts(vertices, edges):
@@ -314,8 +222,8 @@ def parse_args():
     )
     parser.add_argument(
         "--degree-distribution",
-        required=True,
-        help="Degree distribution: ER, power-law, or R-MAT.",
+        default=FIXED_DEGREE_DISTRIBUTION,
+        help="Fixed degree distribution. Only R-MAT is supported.",
     )
     parser.add_argument(
         "--label-distribution",
@@ -365,6 +273,10 @@ def validate_args(args):
         raise ValueError("--label-count must be positive")
     if args.avg_degree < 0:
         raise ValueError("--avg-degree must be non-negative")
+    if normalize_distribution_name(args.degree_distribution) != "r-mat":
+        raise ValueError(
+            "--degree-distribution is fixed to {}".format(FIXED_DEGREE_DISTRIBUTION)
+        )
     if args.zipf_exponent <= 0:
         raise ValueError("--zipf-exponent must be positive")
     if args.max_attempt_factor <= 0:
