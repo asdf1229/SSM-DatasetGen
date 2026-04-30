@@ -68,6 +68,11 @@ def _source_path(row):
     return resolve_project_path(value, PROJECT_ROOT)
 
 
+def _source_graph_id(row, source_file):
+    """Return the dataset id used for query output grouping."""
+    return row.get("source_name") or row.get("graph_id") or source_file.stem
+
+
 def _query_output_base(source_file, source_graph_id, row, output_root):
     """Return the directory that should contain query task subdirectories."""
     if output_root is not None:
@@ -84,7 +89,7 @@ def generate_queries_for_graph(row, tasks, tool_path, output_root=None, overwrit
         log("skip missing data graph file for graph_id={}".format(row.get("graph_id", "")))
         return []
 
-    source_graph_id = row.get("graph_id") or source_file.stem
+    source_graph_id = _source_graph_id(row, source_file)
     query_base = _query_output_base(source_file, source_graph_id, row, output_root)
     generated = []
     for task in tasks:

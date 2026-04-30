@@ -10,10 +10,11 @@ PROJECT_ROOT = CURRENT_DIR.parent
 sys.path.insert(0, str(PROJECT_ROOT / "SSM-GraphGen"))
 
 from graph_utils import compute_graph_stats, iter_graph_files, read_standard_graph
-from pipeline_utils import log, project_relative, write_csv
+from pipeline_utils import log, project_relative, safe_token, write_csv
 
 FIELDNAMES = [
     "graph_id",
+    "internal_graph_id",
     "graph_type",
     "file_path",
     "vertices",
@@ -66,12 +67,29 @@ def _iter_synthetic_graph_files(path):
             yield child
 
 
-def build_manifest_row(path, graph_type):
+def _path_graph_id(path, root=None):
+    """Build a stable dataset id from the graph file location, not t/# metadata."""
+    path = Path(path)
+    if path.name == DATA_GRAPH_FILENAME and path.parent.name:
+        return safe_token(path.parent.name)
+
+    if root is not None:
+        try:
+            relative = path.resolve().relative_to(Path(root).resolve()).with_suffix("")
+            return "__".join(safe_token(part) for part in relative.parts)
+        except ValueError:
+            pass
+
+    return safe_token(path.stem)
+
+
+def build_manifest_row(path, graph_type, root=None):
     """Build one data graph manifest row."""
     path = Path(path)
-    path_id = path.parent.name if path.name == DATA_GRAPH_FILENAME else path.stem
+    path_id = _path_graph_id(path, root)
     row = {
         "graph_id": path_id,
+        "internal_graph_id": "",
         "graph_type": graph_type,
         "file_path": project_relative(path, PROJECT_ROOT),
         "vertices": "",
@@ -88,7 +106,7 @@ def build_manifest_row(path, graph_type):
         graph = read_standard_graph(path)
         stats = compute_graph_stats(graph)
         row.update(stats)
-        row["graph_id"] = graph.graph_id
+        row["internal_graph_id"] = graph.graph_id
         row["is_valid"] = "true"
     except Exception as exc:
         row["source_name"] = "{} ({})".format(path.stem, exc)
@@ -123,9 +141,9 @@ def main():
     args = parse_args()
     rows = []
     for graph_file in iter_graph_files(args.real_dir):
-        rows.append(build_manifest_row(graph_file, "real"))
+        rows.append(build_manifest_row(graph_file, "real", args.real_dir))
     for graph_file in _iter_synthetic_graph_files(args.synthetic_dir):
-        rows.append(build_manifest_row(graph_file, "synthetic"))
+        rows.append(build_manifest_row(graph_file, "synthetic", args.synthetic_dir))
 
     write_csv(args.output, FIELDNAMES, rows)
     log("wrote data graph manifest with {} row(s): {}".format(len(rows), args.output))

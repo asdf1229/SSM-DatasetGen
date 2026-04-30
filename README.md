@@ -43,6 +43,11 @@ Generated files are grouped inside the run directory:
 - `queries/`: generated query graphs for valid selected data graphs
 - `manifests/`: validation reports and data/query manifests
 
+In `manifests/data_graph_manifest.csv`, `graph_id` is the dataset id derived
+from the file or containing directory name. The graph file's internal `t # ...`
+value is preserved separately as `internal_graph_id`, so real graphs whose
+internal id is `0` still get distinct query output directories.
+
 The pipeline runs these steps:
 
 1. Expand OFAT configs into reusable task parameter files.
