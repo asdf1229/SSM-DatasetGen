@@ -59,6 +59,26 @@ def _write_task_outputs(tasks, output_dir, stem):
     return csv_output, json_output, per_task_dir
 
 
+def _remove_task_outputs(output_dir, stem):
+    """Remove stale task files for a skipped task family."""
+    for path in (
+        output_dir / "{}_tasks.csv".format(stem),
+        output_dir / "{}_tasks.json".format(stem),
+    ):
+        if path.exists():
+            path.unlink()
+
+    per_task_dir = output_dir / stem
+    if not per_task_dir.exists():
+        return
+    for child in per_task_dir.glob("*.json"):
+        child.unlink()
+    try:
+        per_task_dir.rmdir()
+    except OSError:
+        pass
+
+
 def parse_args():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -76,6 +96,12 @@ def parse_args():
         default=str(PROJECT_ROOT / "configs" / "ofat_tasks"),
         help="Directory for expanded task parameter files.",
     )
+    parser.add_argument(
+        "--scope",
+        choices=("all", "real", "synthetic"),
+        default="all",
+        help="Pipeline scope. Real-only runs need query tasks but not synthetic data tasks.",
+    )
     return parser.parse_args()
 
 
@@ -83,17 +109,20 @@ def main():
     args = parse_args()
     output_dir = Path(args.output_dir)
 
-    data_tasks = _tasks(args.data_config)
     query_tasks = _tasks(args.query_config)
 
-    data_csv, data_json, data_dir = _write_task_outputs(data_tasks, output_dir, "data_graph")
-    query_csv, query_json, query_dir = _write_task_outputs(query_tasks, output_dir, "query_graph")
-
-    log(
-        "wrote {} data OFAT task(s): {}, {}, {}".format(
-            len(data_tasks), data_csv, data_json, data_dir
+    if args.scope in ("all", "synthetic"):
+        data_tasks = _tasks(args.data_config)
+        data_csv, data_json, data_dir = _write_task_outputs(data_tasks, output_dir, "data_graph")
+        log(
+            "wrote {} data OFAT task(s): {}, {}, {}".format(
+                len(data_tasks), data_csv, data_json, data_dir
+            )
         )
-    )
+    else:
+        _remove_task_outputs(output_dir, "data_graph")
+
+    query_csv, query_json, query_dir = _write_task_outputs(query_tasks, output_dir, "query_graph")
     log(
         "wrote {} query OFAT task(s): {}, {}, {}".format(
             len(query_tasks), query_csv, query_json, query_dir

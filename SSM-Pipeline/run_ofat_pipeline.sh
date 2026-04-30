@@ -6,24 +6,148 @@ PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 cd "${PROJECT_ROOT}"
 
 PYTHON_BIN="${PYTHON:-python3}"
-TASK_DIR="configs/ofat_tasks"
+DATASET_SCOPE="${DATASET_SCOPE:-all}"
+RUN_ID="${RUN_ID:-}"
+OUTPUT_BASE="${OUTPUT_BASE:-datasets/runs}"
+OUTPUT_ROOT="${OUTPUT_ROOT:-}"
+PIPELINE_OVERWRITE="${PIPELINE_OVERWRITE:-0}"
+RUN_REAL_CONVERSION="${RUN_REAL_CONVERSION:-auto}"
+RAW_REAL_GRAPHS="${RAW_REAL_GRAPHS:-datasets/raw/real_graphs}"
+
+usage() {
+    cat <<'EOF'
+Usage: bash SSM-Pipeline/run_ofat_pipeline.sh [options]
+
+Options:
+  --scope all|real|synthetic     Select which data graph source(s) to process.
+                                 Defaults to all. Can also use DATASET_SCOPE.
+  --run-id ID                    Output folder name. Defaults to YYYYMMDD_HHMMSS.
+                                 Can also use RUN_ID.
+  --output-base DIR              Parent directory for timestamped runs.
+                                 Defaults to datasets/runs. Can also use OUTPUT_BASE.
+  --output-root DIR              Full output directory. Overrides --output-base/--run-id.
+                                 Can also use OUTPUT_ROOT.
+  --raw-real-graphs PATH         Raw real graph file or directory.
+                                 Defaults to datasets/raw/real_graphs.
+  --run-real-conversion VALUE    auto, 1, or 0. Defaults to auto.
+  --overwrite                    Overwrite files when child generators support it.
+  -h, --help                     Show this help message.
+EOF
+}
+
+require_value() {
+    local option="$1"
+    local value="${2-}"
+    if [[ -z "${value}" ]]; then
+        printf 'Missing value for %s\n' "${option}" >&2
+        usage >&2
+        exit 2
+    fi
+}
+
+while [[ "$#" -gt 0 ]]; do
+    case "$1" in
+        --scope)
+            require_value "$1" "${2-}"
+            DATASET_SCOPE="$2"
+            shift 2
+            ;;
+        --scope=*)
+            DATASET_SCOPE="${1#*=}"
+            shift
+            ;;
+        --run-id)
+            require_value "$1" "${2-}"
+            RUN_ID="$2"
+            shift 2
+            ;;
+        --run-id=*)
+            RUN_ID="${1#*=}"
+            shift
+            ;;
+        --output-base)
+            require_value "$1" "${2-}"
+            OUTPUT_BASE="$2"
+            shift 2
+            ;;
+        --output-base=*)
+            OUTPUT_BASE="${1#*=}"
+            shift
+            ;;
+        --output-root)
+            require_value "$1" "${2-}"
+            OUTPUT_ROOT="$2"
+            shift 2
+            ;;
+        --output-root=*)
+            OUTPUT_ROOT="${1#*=}"
+            shift
+            ;;
+        --raw-real-graphs)
+            require_value "$1" "${2-}"
+            RAW_REAL_GRAPHS="$2"
+            shift 2
+            ;;
+        --raw-real-graphs=*)
+            RAW_REAL_GRAPHS="${1#*=}"
+            shift
+            ;;
+        --run-real-conversion)
+            require_value "$1" "${2-}"
+            RUN_REAL_CONVERSION="$2"
+            shift 2
+            ;;
+        --run-real-conversion=*)
+            RUN_REAL_CONVERSION="${1#*=}"
+            shift
+            ;;
+        --overwrite)
+            PIPELINE_OVERWRITE=1
+            shift
+            ;;
+        -h|--help)
+            usage
+            exit 0
+            ;;
+        *)
+            printf 'Unknown option: %s\n' "$1" >&2
+            usage >&2
+            exit 2
+            ;;
+    esac
+done
+
+case "${DATASET_SCOPE}" in
+    all|real|synthetic) ;;
+    *)
+        printf 'DATASET_SCOPE=%s is not recognized; use all, real, or synthetic.\n' "${DATASET_SCOPE}" >&2
+        exit 2
+        ;;
+esac
+
+if [[ -z "${RUN_ID}" ]]; then
+    RUN_ID="$(date '+%Y%m%d_%H%M%S')"
+fi
+if [[ -z "${OUTPUT_ROOT}" ]]; then
+    OUTPUT_ROOT="${OUTPUT_BASE}/${RUN_ID}"
+fi
+
+TASK_DIR="${OUTPUT_ROOT}/configs/ofat_tasks"
 DATA_TASKS="${TASK_DIR}/data_graph_tasks.csv"
 QUERY_TASKS="${TASK_DIR}/query_graph_tasks.csv"
-RAW_REAL_GRAPHS="${RAW_REAL_GRAPHS:-datasets/raw/real_graphs}"
-VALIDATION_REPORT="datasets/manifests/graph_validation_report.csv"
-DATA_MANIFEST="datasets/manifests/data_graph_manifest.csv"
-QUERY_MANIFEST="datasets/manifests/query_graph_manifest.csv"
-RUN_REAL_CONVERSION="${RUN_REAL_CONVERSION:-auto}"
-
-GENERATED_DATA_PATHS=(
-    "${TASK_DIR}"
-    "datasets/real"
-    "datasets/synthetic"
-    "datasets/queries"
-    "${VALIDATION_REPORT}"
-    "${DATA_MANIFEST}"
-    "${QUERY_MANIFEST}"
-)
+REAL_DIR="${OUTPUT_ROOT}/real"
+SYNTHETIC_DIR="${OUTPUT_ROOT}/synthetic"
+QUERIES_DIR="${OUTPUT_ROOT}/queries"
+MANIFEST_DIR="${OUTPUT_ROOT}/manifests"
+VALIDATION_REPORT="${MANIFEST_DIR}/graph_validation_report.csv"
+DATA_MANIFEST="${MANIFEST_DIR}/data_graph_manifest.csv"
+QUERY_MANIFEST="${MANIFEST_DIR}/query_graph_manifest.csv"
+EMPTY_REAL_DIR="${OUTPUT_ROOT}/_empty_real"
+EMPTY_SYNTHETIC_DIR="${OUTPUT_ROOT}/_empty_synthetic"
+OVERWRITE_ARGS=()
+if [[ "${PIPELINE_OVERWRITE}" == "1" || "${PIPELINE_OVERWRITE}" == "true" || "${PIPELINE_OVERWRITE}" == "yes" ]]; then
+    OVERWRITE_ARGS=(--overwrite)
+fi
 
 TOTAL_STEPS=7
 CURRENT_STEP=0
@@ -44,29 +168,18 @@ log() {
     printf '[%s] %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*"
 }
 
-clean_generated_data() {
-    local path
-    local removed_count=0
+scope_includes_real() {
+    case "${DATASET_SCOPE}" in
+        all|real) return 0 ;;
+        *) return 1 ;;
+    esac
+}
 
-    log "Cleaning generated data from previous runs."
-    for path in "${GENERATED_DATA_PATHS[@]}"; do
-        if [[ -z "${path}" || "${path}" == "/" || "${path}" == "." ]]; then
-            log "Refusing to remove unsafe generated data path: ${path}"
-            return 1
-        fi
-        if [[ -e "${path}" ]]; then
-            if ! rm -rf "${path}"; then
-                log "Failed to remove ${path}"
-                return 1
-            fi
-            removed_count=$((removed_count + 1))
-            log "Removed ${path}"
-        fi
-    done
-
-    if [[ "${removed_count}" -eq 0 ]]; then
-        log "No generated data from previous runs found."
-    fi
+scope_includes_synthetic() {
+    case "${DATASET_SCOPE}" in
+        all|synthetic) return 0 ;;
+        *) return 1 ;;
+    esac
 }
 
 count_visible_files() {
@@ -246,7 +359,7 @@ summarize_convert_real_graphs() {
     local real_count
     raw_count="$(count_visible_files "${RAW_REAL_GRAPHS}")"
     converted_count="$(log_count_or_default 'converted ([0-9]+) real graph file' "0")"
-    real_count="$(count_graph_files "datasets/real")"
+    real_count="$(count_graph_files "${REAL_DIR}")"
 
     SUMMARY_DONE_COUNT="${converted_count}"
     SUMMARY_FAILURE_COUNT=0
@@ -259,7 +372,7 @@ summarize_generate_synthetic_graphs() {
     local graph_count
     task_count="$(csv_count_rows "${DATA_TASKS}")"
     generated_count="$(log_count_or_default 'generated ([0-9]+) synthetic graph file' "0")"
-    graph_count="$(count_synthetic_data_graph_files "datasets/synthetic")"
+    graph_count="$(count_synthetic_data_graph_files "${SYNTHETIC_DIR}")"
 
     SUMMARY_DONE_COUNT="${generated_count}"
     SUMMARY_FAILURE_COUNT=0
@@ -294,10 +407,7 @@ summarize_generate_query_graphs() {
     local valid_data_count
     local query_task_count
     generated_count="$(log_count_or_default 'generated ([0-9]+) query graph file' "0")"
-    graph_count="$(count_packaged_query_graph_files "datasets/synthetic")"
-    if [[ "${graph_count}" == "0" ]]; then
-        graph_count="$(count_graph_files "datasets/queries")"
-    fi
+    graph_count="$(count_graph_files "${QUERIES_DIR}")"
     valid_data_count="$(csv_count_column_true "${DATA_MANIFEST}" "is_valid")"
     query_task_count="$(csv_count_rows "${QUERY_TASKS}")"
 
@@ -399,84 +509,117 @@ run_step() {
     record_step_result "${name}" "ok" "${SUMMARY_DONE_COUNT}" "${SUMMARY_FAILURE_COUNT}" "${SUMMARY_NOTE}"
 }
 
-clean_generated_data || finish 1
+mkdir -p "${OUTPUT_ROOT}" || finish 1
+log "Dataset scope: ${DATASET_SCOPE}"
+log "Run output root: ${OUTPUT_ROOT}"
 
 run_step \
     "Expand OFAT configs" \
     "Expand data/query OFAT configs into reusable task parameter files for later steps." \
     "required" \
     "summarize_make_ofat_configs" \
-    "${PYTHON_BIN}" SSM-Pipeline/make_ofat_configs.py --output-dir "${TASK_DIR}"
+    "${PYTHON_BIN}" SSM-Pipeline/make_ofat_configs.py --output-dir "${TASK_DIR}" --scope "${DATASET_SCOPE}"
 
-case "${RUN_REAL_CONVERSION}" in
-    auto)
-        if [[ "$(count_visible_files "${RAW_REAL_GRAPHS}")" -eq 0 ]]; then
-            skip_step \
-                "Convert real graphs" \
-                "Convert raw real graphs into standard .txt files; safe to skip when no raw inputs exist." \
-                "no raw real graph files under ${RAW_REAL_GRAPHS}"
-        else
+if scope_includes_real; then
+    case "${RUN_REAL_CONVERSION}" in
+        auto)
+            if [[ "$(count_visible_files "${RAW_REAL_GRAPHS}")" -eq 0 ]]; then
+                skip_step \
+                    "Convert real graphs" \
+                    "Convert raw real graphs into standard .txt files; safe to skip when no raw inputs exist." \
+                    "no raw real graph files under ${RAW_REAL_GRAPHS}"
+            else
+                run_step \
+                    "Convert real graphs" \
+                    "Convert raw real graphs into standard .txt files for this run." \
+                    "optional" \
+                    "summarize_convert_real_graphs" \
+                    "${PYTHON_BIN}" SSM-GraphGen/convert_real_graphs.py --input "${RAW_REAL_GRAPHS}" --output "${REAL_DIR}" "${OVERWRITE_ARGS[@]}"
+            fi
+            ;;
+        1|true|yes|always)
             run_step \
                 "Convert real graphs" \
-                "Convert raw real graphs into standard .txt files; this optional step will not block synthetic graph generation if it fails." \
+                "Run real graph conversion as requested for this run." \
                 "optional" \
                 "summarize_convert_real_graphs" \
-                "${PYTHON_BIN}" SSM-GraphGen/convert_real_graphs.py --input "${RAW_REAL_GRAPHS}"
-        fi
-        ;;
-    1|true|yes|always)
-        run_step \
-            "Convert real graphs" \
-            "Run real graph conversion as requested; this optional step will not block synthetic graph generation if it fails." \
-            "optional" \
-            "summarize_convert_real_graphs" \
-            "${PYTHON_BIN}" SSM-GraphGen/convert_real_graphs.py --input "${RAW_REAL_GRAPHS}"
-        ;;
-    0|false|no|skip)
-        skip_step \
-            "Convert real graphs" \
-            "Convert raw real graphs into standard .txt files; currently skipped by RUN_REAL_CONVERSION." \
-            "RUN_REAL_CONVERSION=${RUN_REAL_CONVERSION}"
-        ;;
-    *)
-        log "RUN_REAL_CONVERSION=${RUN_REAL_CONVERSION} is not recognized; use auto/1/0."
-        finish 2
-        ;;
-esac
+                "${PYTHON_BIN}" SSM-GraphGen/convert_real_graphs.py --input "${RAW_REAL_GRAPHS}" --output "${REAL_DIR}" "${OVERWRITE_ARGS[@]}"
+            ;;
+        0|false|no|skip)
+            skip_step \
+                "Convert real graphs" \
+                "Convert raw real graphs into standard .txt files; currently skipped by RUN_REAL_CONVERSION." \
+                "RUN_REAL_CONVERSION=${RUN_REAL_CONVERSION}"
+            ;;
+        *)
+            log "RUN_REAL_CONVERSION=${RUN_REAL_CONVERSION} is not recognized; use auto/1/0."
+            finish 2
+            ;;
+    esac
+else
+    skip_step \
+        "Convert real graphs" \
+        "Convert raw real graphs into standard .txt files." \
+        "scope=${DATASET_SCOPE}"
+fi
 
-run_step \
-    "Generate synthetic graphs" \
-    "Generate synthetic data graphs from data_graph_tasks.csv; existing outputs are handled by the child script's normal skip logic." \
-    "required" \
-    "summarize_generate_synthetic_graphs" \
-    "${PYTHON_BIN}" SSM-GraphGen/generate_synthetic_graphs.py --tasks "${DATA_TASKS}"
+if scope_includes_synthetic; then
+    run_step \
+        "Generate synthetic graphs" \
+        "Generate synthetic data graphs from data_graph_tasks.csv for this run." \
+        "required" \
+        "summarize_generate_synthetic_graphs" \
+        "${PYTHON_BIN}" SSM-GraphGen/generate_synthetic_graphs.py --tasks "${DATA_TASKS}" --output-dir "${SYNTHETIC_DIR}" "${OVERWRITE_ARGS[@]}"
+else
+    skip_step \
+        "Generate synthetic graphs" \
+        "Generate synthetic data graphs from data_graph_tasks.csv." \
+        "scope=${DATASET_SCOPE}"
+fi
+
+VALIDATION_INPUTS=()
+if scope_includes_real; then
+    VALIDATION_INPUTS+=("${REAL_DIR}")
+fi
+if scope_includes_synthetic; then
+    VALIDATION_INPUTS+=("${SYNTHETIC_DIR}")
+fi
 
 run_step \
     "Validate data graphs" \
-    "Validate standard-format real and synthetic graphs, then write the graph validation report." \
+    "Validate standard-format graphs selected by scope, then write the graph validation report." \
     "required" \
     "summarize_validate_graphs" \
-    "${PYTHON_BIN}" SSM-GraphGen/validate_graph_format.py
+    "${PYTHON_BIN}" SSM-GraphGen/validate_graph_format.py --input "${VALIDATION_INPUTS[@]}" --report "${VALIDATION_REPORT}"
+
+REAL_MANIFEST_DIR="${EMPTY_REAL_DIR}"
+SYNTHETIC_MANIFEST_DIR="${EMPTY_SYNTHETIC_DIR}"
+if scope_includes_real; then
+    REAL_MANIFEST_DIR="${REAL_DIR}"
+fi
+if scope_includes_synthetic; then
+    SYNTHETIC_MANIFEST_DIR="${SYNTHETIC_DIR}"
+fi
 
 run_step \
     "Build data manifest" \
-    "Summarize real and synthetic graphs into the data graph manifest used by query generation." \
+    "Summarize selected data graphs into the manifest used by query generation." \
     "required" \
     "summarize_build_data_manifest" \
-    "${PYTHON_BIN}" SSM-Pipeline/build_data_graph_manifest.py
+    "${PYTHON_BIN}" SSM-Pipeline/build_data_graph_manifest.py --real-dir "${REAL_MANIFEST_DIR}" --synthetic-dir "${SYNTHETIC_MANIFEST_DIR}" --output "${DATA_MANIFEST}"
 
 run_step \
     "Generate query graphs" \
-    "Generate query graphs for each valid data graph using query_graph_tasks.csv; the child script skips this step if the generator is missing." \
+    "Generate query graphs for each valid selected data graph using query_graph_tasks.csv." \
     "required" \
     "summarize_generate_query_graphs" \
-    "${PYTHON_BIN}" SSM-QueryGen/generate_query_graphs.py --tasks "${QUERY_TASKS}"
+    "${PYTHON_BIN}" SSM-QueryGen/generate_query_graphs.py --manifest "${DATA_MANIFEST}" --tasks "${QUERY_TASKS}" --output-dir "${QUERIES_DIR}" "${OVERWRITE_ARGS[@]}"
 
 run_step \
     "Build query manifest" \
     "Scan the query graph output directory and build the final query graph manifest." \
     "required" \
     "summarize_build_query_manifest" \
-    "${PYTHON_BIN}" SSM-Pipeline/build_query_graph_manifest.py
+    "${PYTHON_BIN}" SSM-Pipeline/build_query_graph_manifest.py --queries-dir "${QUERIES_DIR}" --tasks "${QUERY_TASKS}" --output "${QUERY_MANIFEST}"
 
 finish 0
