@@ -60,10 +60,15 @@ def iter_query_graph_files(path):
 
 
 def _default_query_roots():
-    """Prefer packaged synthetic query_graph directories, then legacy datasets/queries."""
+    """Prefer packaged real/synthetic query_graph directories, then legacy datasets/queries."""
+    real_root = PROJECT_ROOT / "datasets" / "real"
     synthetic_root = PROJECT_ROOT / "datasets" / "synthetic"
-    if _has_query_graph_dir(synthetic_root) and any(iter_query_graph_files(synthetic_root)):
-        return [synthetic_root]
+    packaged_roots = []
+    for root in (real_root, synthetic_root):
+        if _has_query_graph_dir(root) and any(iter_query_graph_files(root)):
+            packaged_roots.append(root)
+    if packaged_roots:
+        return packaged_roots
     return [PROJECT_ROOT / "datasets" / "queries"]
 
 
@@ -158,7 +163,8 @@ def parse_args():
         default=None,
         help=(
             "Directory or directories containing query graph files. "
-            "Defaults to packaged datasets/synthetic query_graph directories when present."
+            "Defaults to packaged datasets/real and datasets/synthetic query_graph "
+            "directories when present."
         ),
     )
     parser.add_argument(

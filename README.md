@@ -38,15 +38,26 @@ bash SSM-Pipeline/run_ofat_pipeline.sh --scope real --run-id 20260419_001233
 Generated files are grouped inside the run directory:
 
 - `configs/ofat_tasks/`: expanded OFAT task files
-- `real/`: converted real graphs, when `--scope real` or `--scope all`
-- `synthetic/`: generated synthetic graphs, when `--scope synthetic` or `--scope all`
-- `queries/`: generated query graphs for valid selected data graphs
+- `real/<graph_id>/graph_g.txt`: converted real data graphs, when `--scope real` or `--scope all`
+- `real/<graph_id>/query_graph/<task_id>/`: query graphs for each real graph
+- `synthetic/<graph_id>/graph_g.txt`: generated synthetic data graphs, when `--scope synthetic` or `--scope all`
+- `synthetic/<graph_id>/query_graph/<task_id>/`: query graphs for each synthetic graph
 - `manifests/`: validation reports and data/query manifests
 
 In `manifests/data_graph_manifest.csv`, `graph_id` is the dataset id derived
 from the file or containing directory name. The graph file's internal `t # ...`
 value is preserved separately as `internal_graph_id`, so real graphs whose
 internal id is `0` still get distinct query output directories.
+
+To rewrite an older run that has real data graphs under `real/` and query
+graphs under top-level `queries/`, run:
+
+```bash
+python3 SSM-Pipeline/package_run_outputs.py 20260419_001233
+```
+
+The repair script accepts either a run id below `datasets/runs/` or a full run
+directory, moves files into the packaged layout, and rebuilds the manifest CSVs.
 
 The pipeline runs these steps:
 
@@ -61,8 +72,9 @@ The pipeline runs these steps:
 ## Real Graph Conversion
 
 Raw real graphs are read from `datasets/raw/real_graphs/` and converted into
-standard `.txt` files. The pipeline writes them under the current run's
-`real/` directory; the standalone converter defaults to `datasets/real/`.
+standard `.txt` files. The pipeline writes them as
+`real/<graph_id>/graph_g.txt`; the standalone converter defaults to flat
+outputs under `datasets/real/` unless `--packaged-output` is provided.
 
 The converter dispatches by file suffix:
 

@@ -407,7 +407,16 @@ summarize_generate_query_graphs() {
     local valid_data_count
     local query_task_count
     generated_count="$(log_count_or_default 'generated ([0-9]+) query graph file' "0")"
-    graph_count="$(count_graph_files "${QUERIES_DIR}")"
+    graph_count=0
+    if scope_includes_real; then
+        graph_count=$((graph_count + $(count_packaged_query_graph_files "${REAL_DIR}")))
+    fi
+    if scope_includes_synthetic; then
+        graph_count=$((graph_count + $(count_packaged_query_graph_files "${SYNTHETIC_DIR}")))
+    fi
+    if [[ "${graph_count}" -eq 0 ]]; then
+        graph_count="$(count_graph_files "${QUERIES_DIR}")"
+    fi
     valid_data_count="$(csv_count_column_true "${DATA_MANIFEST}" "is_valid")"
     query_task_count="$(csv_count_rows "${QUERY_TASKS}")"
 
@@ -534,7 +543,7 @@ if scope_includes_real; then
                     "Convert raw real graphs into standard .txt files for this run." \
                     "optional" \
                     "summarize_convert_real_graphs" \
-                    "${PYTHON_BIN}" SSM-GraphGen/convert_real_graphs.py --input "${RAW_REAL_GRAPHS}" --output "${REAL_DIR}" "${OVERWRITE_ARGS[@]}"
+                    "${PYTHON_BIN}" SSM-GraphGen/convert_real_graphs.py --input "${RAW_REAL_GRAPHS}" --output "${REAL_DIR}" --packaged-output "${OVERWRITE_ARGS[@]}"
             fi
             ;;
         1|true|yes|always)
@@ -543,7 +552,7 @@ if scope_includes_real; then
                 "Run real graph conversion as requested for this run." \
                 "optional" \
                 "summarize_convert_real_graphs" \
-                "${PYTHON_BIN}" SSM-GraphGen/convert_real_graphs.py --input "${RAW_REAL_GRAPHS}" --output "${REAL_DIR}" "${OVERWRITE_ARGS[@]}"
+                "${PYTHON_BIN}" SSM-GraphGen/convert_real_graphs.py --input "${RAW_REAL_GRAPHS}" --output "${REAL_DIR}" --packaged-output "${OVERWRITE_ARGS[@]}"
             ;;
         0|false|no|skip)
             skip_step \
@@ -613,13 +622,21 @@ run_step \
     "Generate query graphs for each valid selected data graph using query_graph_tasks.csv." \
     "required" \
     "summarize_generate_query_graphs" \
-    "${PYTHON_BIN}" SSM-QueryGen/generate_query_graphs.py --manifest "${DATA_MANIFEST}" --tasks "${QUERY_TASKS}" --output-dir "${QUERIES_DIR}" "${OVERWRITE_ARGS[@]}"
+    "${PYTHON_BIN}" SSM-QueryGen/generate_query_graphs.py --manifest "${DATA_MANIFEST}" --tasks "${QUERY_TASKS}" "${OVERWRITE_ARGS[@]}"
+
+QUERY_ROOTS=()
+if scope_includes_real; then
+    QUERY_ROOTS+=("${REAL_DIR}")
+fi
+if scope_includes_synthetic; then
+    QUERY_ROOTS+=("${SYNTHETIC_DIR}")
+fi
 
 run_step \
     "Build query manifest" \
     "Scan the query graph output directory and build the final query graph manifest." \
     "required" \
     "summarize_build_query_manifest" \
-    "${PYTHON_BIN}" SSM-Pipeline/build_query_graph_manifest.py --queries-dir "${QUERIES_DIR}" --tasks "${QUERY_TASKS}" --output "${QUERY_MANIFEST}"
+    "${PYTHON_BIN}" SSM-Pipeline/build_query_graph_manifest.py --queries-dir "${QUERY_ROOTS[@]}" --tasks "${QUERY_TASKS}" --output "${QUERY_MANIFEST}"
 
 finish 0

@@ -77,7 +77,7 @@ def _query_output_base(source_file, source_graph_id, row, output_root):
     """Return the directory that should contain query task subdirectories."""
     if output_root is not None:
         return Path(output_root) / safe_token(source_graph_id)
-    if row.get("graph_type") == "synthetic" and source_file.name == DATA_GRAPH_FILENAME:
+    if source_file.name == DATA_GRAPH_FILENAME:
         return source_file.parent / QUERY_GRAPH_DIRNAME
     return LEGACY_QUERY_ROOT / safe_token(source_graph_id)
 
@@ -136,7 +136,7 @@ def parse_args():
         default=None,
         help=(
             "Optional legacy root directory for generated query graphs. "
-            "When omitted, synthetic graph_g.txt inputs write to sibling query_graph/ directories."
+            "When omitted, graph_g.txt inputs write to sibling query_graph/ directories."
         ),
     )
     parser.add_argument("--dry-run", action="store_true", help="Print tasks without running the tool.")

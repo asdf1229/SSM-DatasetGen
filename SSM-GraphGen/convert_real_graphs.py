@@ -10,9 +10,10 @@ PROJECT_ROOT = CURRENT_DIR.parent
 sys.path.insert(0, str(PROJECT_ROOT / "SSM-Pipeline"))
 
 from graph_utils import canonicalize_undirected_edges, write_standard_graph
-from pipeline_utils import log
+from pipeline_utils import log, safe_token
 
 DEFAULT_LABEL = "0"
+DATA_GRAPH_FILENAME = "graph_g.txt"
 COMMENT_PREFIXES = ("#", "%", "//")
 SOURCE_HEADER_NAMES = ("source", "src", "from", "u", "node1", "source_id")
 TARGET_HEADER_NAMES = ("target", "dst", "to", "v", "node2", "target_id")
@@ -178,13 +179,31 @@ def normalize_vertex_ids(vertex_labels, edges):
     return vertices, canonicalize_undirected_edges(normalized_edges)
 
 
-def convert_file(input_file, output_dir, input_root, overwrite=False):
+def packaged_graph_id(input_file, input_root):
+    """Build the package directory name for one raw graph file."""
+    relative = Path(input_file).relative_to(input_root).with_suffix("")
+    return "__".join(safe_token(part) for part in relative.parts)
+
+
+def output_path(input_file, output_dir, input_root, packaged_output=False):
+    """Build the converted real graph output path."""
+    relative = Path(input_file).relative_to(input_root)
+    if packaged_output:
+        return Path(output_dir) / packaged_graph_id(input_file, input_root) / DATA_GRAPH_FILENAME
+    return Path(output_dir) / relative.with_suffix(".txt")
+
+
+def convert_file(input_file, output_dir, input_root, overwrite=False, packaged_output=False):
     """Convert one raw graph file and return the output path."""
     graph_id, vertex_labels, edges = load_raw_graph(input_file)
     vertices, normalized_edges = normalize_vertex_ids(vertex_labels, edges)
 
-    relative = Path(input_file).relative_to(input_root)
-    output_file = Path(output_dir) / relative.with_suffix(".txt")
+    output_file = output_path(
+        input_file,
+        output_dir,
+        input_root,
+        packaged_output=packaged_output,
+    )
     if output_file.exists() and not overwrite:
         log("skip existing {}".format(output_file))
         return output_file
@@ -220,6 +239,11 @@ def parse_args():
     )
     parser.add_argument("--overwrite", action="store_true", help="Overwrite outputs.")
     parser.add_argument(
+        "--packaged-output",
+        action="store_true",
+        help="Write each real graph as <graph_id>/graph_g.txt below --output.",
+    )
+    parser.add_argument(
         "--strict-suffix",
         action="store_true",
         help="Fail when no parser is registered for a file suffix.",
@@ -252,7 +276,13 @@ def main():
     converted = []
     for input_file in files:
         converted.append(
-            convert_file(input_file, output_dir, input_root, overwrite=args.overwrite)
+            convert_file(
+                input_file,
+                output_dir,
+                input_root,
+                overwrite=args.overwrite,
+                packaged_output=args.packaged_output,
+            )
         )
 
     log("converted {} real graph file(s)".format(len(converted)))

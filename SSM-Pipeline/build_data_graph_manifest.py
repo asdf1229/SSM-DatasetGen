@@ -67,6 +67,22 @@ def _iter_synthetic_graph_files(path):
             yield child
 
 
+def _iter_real_graph_files(path):
+    """Yield packaged real data graphs, falling back to legacy flat files."""
+    path = Path(path)
+    packaged = sorted(
+        child for child in path.rglob(DATA_GRAPH_FILENAME) if not _is_query_graph_path(child)
+    )
+    if packaged:
+        for child in packaged:
+            yield child
+        return
+
+    for child in iter_graph_files(path):
+        if not _is_query_graph_path(child):
+            yield child
+
+
 def _path_graph_id(path, root=None):
     """Build a stable dataset id from the graph file location, not t/# metadata."""
     path = Path(path)
@@ -140,7 +156,7 @@ def parse_args():
 def main():
     args = parse_args()
     rows = []
-    for graph_file in iter_graph_files(args.real_dir):
+    for graph_file in _iter_real_graph_files(args.real_dir):
         rows.append(build_manifest_row(graph_file, "real", args.real_dir))
     for graph_file in _iter_synthetic_graph_files(args.synthetic_dir):
         rows.append(build_manifest_row(graph_file, "synthetic", args.synthetic_dir))
